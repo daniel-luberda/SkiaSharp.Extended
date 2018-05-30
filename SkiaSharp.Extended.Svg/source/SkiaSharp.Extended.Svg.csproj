@@ -50,6 +50,9 @@
     <PackageReference Include="SkiaSharp" Version="1.60.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="SkiaSharp.Extended.Svg.Shared\Extensions\" />
+  </ItemGroup>
   <Import Project="$(MSBuildSDKExtrasTargets)" Condition="Exists('$(MSBuildSDKExtrasTargets)')" />
   <Import Project="$(MSBuildThisFileDirectory)..\..\Signing.targets" />
 
