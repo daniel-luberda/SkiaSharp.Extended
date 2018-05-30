@@ -309,66 +309,45 @@ namespace SkiaSharp.Extended.Svg
 							break;
 
 						string fillId = e.Attribute("fill")?.Value;
-						object addFill = null;
-						if (!string.IsNullOrWhiteSpace(fillId) && fills.TryGetValue(fillId, out addFill))
+						if (!string.IsNullOrWhiteSpace(fillId) && fills.TryGetValue(fillId, out object addFill))
 						{
 							var x = ReadNumber(e.Attribute("x"));
 							var y = ReadNumber(e.Attribute("y"));
+							var elementSize = ReadElementSize(e);
 
-							float width = 0f;
-							float height = 0f;
-							var element = e;
-
-							while (element.Parent != null)
+							switch (addFill)
 							{
-								if (!(width > 0f))
-									width = ReadNumber(element.Attribute("width"));
+								case SKLinearGradient gradient:
+									var startPoint = gradient.GetStartPoint(x, y, elementSize.Width, elementSize.Height);
+									var endPoint = gradient.GetEndPoint(x, y, elementSize.Width, elementSize.Height);
 
-								if (!(height > 0f))
-									height = ReadNumber(element.Attribute("height"));
-
-								if (width > 0f && height > 0f)
+									using (var gradientShader = SKShader.CreateLinearGradient(startPoint, endPoint, gradient.Colors, gradient.Positions, gradient.TileMode))
+									using (var gradientPaint = new SKPaint() { Shader = gradientShader, IsAntialias = true, BlendMode = SKBlendMode.SrcOver })
+									{
+										canvas.DrawPath(elementPath, gradientPaint);
+									}
 									break;
+								case SKRadialGradient gradient:
+									var centerPoint = gradient.GetCenterPoint(x, y, elementSize.Width, elementSize.Height);
+									var radius = gradient.GetRadius(elementSize.Width, elementSize.Height);
 
-								element = element.Parent;
-							}
-
-							if (!(width > 0f && height > 0f))
-							{
-								var root = e?.Document?.Root;
-								width = ReadNumber(root?.Attribute("width"));
-								height = ReadNumber(root?.Attribute("height"));
-							}
-
-							var addFillType = addFill.GetType();
-
-							if (addFillType == typeof(SKLinearGradient))
-							{
-								var gradient = (SKLinearGradient)addFill;
-								var startPoint = gradient.GetStartPoint(x, y, width, height);
-								var endPoint = gradient.GetEndPoint(x, y, width, height);
-
-								using (var gradientShader = SKShader.CreateLinearGradient(startPoint, endPoint, gradient.Colors, gradient.Positions, gradient.TileMode))
-								using (var gradientPaint = new SKPaint() { Shader = gradientShader, IsAntialias = true, BlendMode = SKBlendMode.SrcOver })
-								{
-									canvas.DrawPath(elementPath, gradientPaint);
-								}
-							}
-							else if (addFillType == typeof(SKRadialGradient))
-							{
-								var gradient = (SKRadialGradient)addFill;
-								var centerPoint = gradient.GetCenterPoint(x, y, width, height);
-								var radius = gradient.GetRadius(width, height);
-
-								using (var gradientShader = SKShader.CreateRadialGradient(centerPoint, radius, gradient.Colors, gradient.Positions, gradient.TileMode))
-								using (var gradientPaint = new SKPaint() { Shader = gradientShader, IsAntialias = true })
-								{
-									canvas.DrawPath(elementPath, gradientPaint);
-								}
+									using (var gradientShader = SKShader.CreateRadialGradient(centerPoint, radius, gradient.Colors, gradient.Positions, gradient.TileMode))
+									using (var gradientPaint = new SKPaint() { Shader = gradientShader, IsAntialias = true })
+									{
+										canvas.DrawPath(elementPath, gradientPaint);
+									}
+									break;
+								default:
+									if (fill != null)
+										canvas.DrawPath(elementPath, fill);
+									break;
 							}
 						}
 						else if (fill != null)
+						{
 							canvas.DrawPath(elementPath, fill);
+						}
+
 						if (stroke != null)
 							canvas.DrawPath(elementPath, stroke);
 
@@ -672,7 +651,37 @@ namespace SkiaSharp.Extended.Svg
 			if (fontStyle.TryGetValue("font-size", out string fsize) && !string.IsNullOrWhiteSpace(fsize))
 				paint.TextSize = ReadNumber(fsize);
 		}
-      
+
+		private SKSize ReadElementSize(XElement e)
+		{
+			float width = 0f;
+            float height = 0f;
+            var element = e;
+
+			while (element.Parent != null)
+            {
+                if (!(width > 0f))
+                    width = ReadNumber(element.Attribute("width"));
+
+                if (!(height > 0f))
+                    height = ReadNumber(element.Attribute("height"));
+
+                if (width > 0f && height > 0f)
+                    break;
+
+                element = element.Parent;
+            }
+
+            if (!(width > 0f && height > 0f))
+            {
+                var root = e?.Document?.Root;
+                width = ReadNumber(root?.Attribute("width"));
+                height = ReadNumber(root?.Attribute("height"));
+            }
+
+			return new SKSize(width, height);
+		}
+        
 		private Dictionary<string, string> ReadPaints(XElement e, ref SKPaint stroke, ref SKPaint fill, bool isGroup)
 		{
 			var style = e.ReadStyle();
@@ -1072,15 +1081,14 @@ namespace SkiaSharp.Extended.Svg
 
 		private SKRadialGradient ReadRadialGradient(XElement e)
 		{
-			var cx = e.Attribute("cx");
-			var cy = e.Attribute("cy");
-			var centerX = cx == null ? 0.5f : ReadNumber(cx);
-			var centerY = cy == null ? 0.5f : ReadNumber(cy);
+			var centerX = ReadNumber(e.Attribute("cx"), 0.5f);
+			var centerY = ReadNumber(e.Attribute("cy"), 0.5f);
+			var radius = ReadNumber(e.Attribute("r"), 0.5f);
+
 			//var focusX = ReadOptionalNumber(e.Attribute("fx")) ?? centerX;
-			//var focusY = ReadOptionalNumber(e.Attribute("fy")) ?? centerY;
-			var r = e.Attribute("r");
-			var radius = r == null ? 0.5f : ReadNumber(r);
+			//var focusY = ReadOptionalNumber(e.Attribute("fy")) ?? centerY;         
 			//var absolute = e.Attribute("gradientUnits")?.Value == "userSpaceOnUse";
+
 			var tileMode = e.ReadSpreadMethod();
 			var stops = ReadStops(e);
 
@@ -1094,10 +1102,7 @@ namespace SkiaSharp.Extended.Svg
 		{
 			var startX = ReadNumber(e.Attribute("x1"));
 			var startY = ReadNumber(e.Attribute("y1"));
-
-			var x2 = e.Attribute("x2");
-
-			float endX = x2 == null ? 1f : ReadNumber(x2);
+			float endX = ReadNumber(e.Attribute("x2"), 1f);
 			float endY = ReadNumber(e.Attribute("y2"));
 
 			//var absolute = e.Attribute("gradientUnits")?.Value == "userSpaceOnUse";
@@ -1228,6 +1233,8 @@ namespace SkiaSharp.Extended.Svg
 
 			return m * v;
 		}
+
+		private float ReadNumber(XAttribute a, float defaultValue) => a == null ? defaultValue : ReadNumber(a.Value);
 
 		private float ReadNumber(XAttribute a) => ReadNumber(a?.Value);
 
